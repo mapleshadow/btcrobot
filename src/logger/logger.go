@@ -40,8 +40,8 @@ var (
 )
 
 func init() {
-	os.Mkdir(ROOT+"/log/", 0644)
-	os.Mkdir(ROOT+"/cache/", 0644)
+	os.Mkdir(ROOT+"/log/", 0777)
+	os.Mkdir(ROOT+"/cache/", 0777)
 	if Config["env"] == "test" {
 		override_file += "_test"
 	}

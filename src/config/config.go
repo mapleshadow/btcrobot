@@ -21,14 +21,17 @@ package config
 import (
 	"encoding/json"
 	//"fmt"
+	"flag"
+	"fmt"
 	"io/ioutil"
+	"os"
 	"path"
-	"process"
+	"path/filepath"
 )
 
 // 项目根目录
 var ROOT string
-
+var DebugEnv bool
 var Config map[string]string
 var Option map[string]string
 var TradeOption map[string]string
@@ -40,6 +43,10 @@ func init() {
 	//fmt.Println(Option)
 	//fmt.Println(Licence)
 	//fmt.Println(Remind)
+	var pDebugEnv *bool
+	pDebugEnv = flag.Bool("d", false, "enable debug for dev")
+	flag.Parse()
+	DebugEnv = *pDebugEnv
 }
 
 func LoadAll() {
@@ -48,15 +55,25 @@ func LoadAll() {
 	LoadSecretOption()
 }
 
-func load_config(file string) (config map[string]string, err error) {
-	binDir, err := process.ExecutableDir()
+func get_config_path(file string) (filepath string, err error) {
+	binDir, err := ExecutableDir()
 	if err != nil {
-		return nil, (err)
+		return
 	}
 	ROOT = path.Dir(binDir)
 
+	filepath = ROOT + file
+
+	return
+}
+
+func load_config(file string) (config map[string]string, err error) {
 	// Load 全局配置文件
-	configFile := ROOT + file
+	configFile, err := get_config_path(file)
+	if err != nil {
+		return nil, (err)
+	}
+
 	content, err := ioutil.ReadFile(configFile)
 	if err != nil {
 		return nil, (err)
@@ -71,7 +88,7 @@ func load_config(file string) (config map[string]string, err error) {
 }
 
 func save_config(file string, config map[string]string) (err error) {
-	binDir, err := process.ExecutableDir()
+	binDir, err := ExecutableDir()
 	if err != nil {
 		return (err)
 	}
@@ -132,10 +149,40 @@ func SaveTrade() error {
 	return save_config("/conf/trade.json", TradeOption)
 }
 
+// filesExists returns whether or not the named file or directory exists.
+func fileExists(name string) bool {
+	if _, err := os.Stat(name); err != nil {
+		if os.IsNotExist(err) {
+			return false
+		}
+	}
+	return true
+}
+
 func LoadSecretOption() (err error) {
+	secretFile, err := get_config_path("/conf/secret.json")
+	if err != nil {
+		return err
+	}
+
+	secretSampleFile, err := get_config_path("/conf/secret.sample")
+	if err != nil {
+		return err
+	}
+
+	if !fileExists(secretFile) {
+		if err := os.Rename(secretSampleFile, secretFile); err != nil {
+			fmt.Println(err)
+			err := fmt.Errorf("unable to create secret.json "+
+				"root: %v", err)
+			fmt.Println(err)
+			return err
+		}
+	}
+
 	_SecretOption, err := load_config("/conf/secret.json")
 	if err != nil {
-		return (err)
+		return err
 	}
 	SecretOption = make(map[string]string)
 	SecretOption = _SecretOption
@@ -144,4 +191,13 @@ func LoadSecretOption() (err error) {
 
 func SaveSecretOption() error {
 	return save_config("/conf/secret.json", SecretOption)
+}
+
+// 获得可执行程序所在目录
+func ExecutableDir() (string, error) {
+	pathAbs, err := filepath.Abs(os.Args[0])
+	if err != nil {
+		return "", err
+	}
+	return filepath.Dir(pathAbs), nil
 }

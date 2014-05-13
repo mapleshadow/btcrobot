@@ -20,13 +20,16 @@ package main
 
 import (
 	. "config"
-	"entry"
 	"fmt"
+	"io/ioutil"
 	"math/rand"
+	"monitor"
+	"os"
 	"path/filepath"
-	"process"
 	"runtime"
+	"strconv"
 	"time"
+	"webui"
 )
 
 func init() {
@@ -40,24 +43,21 @@ func main() {
 
 	printBanner()
 
-	go startWEBserver()
+	go webui.RunServer()
 
-	entry.RunRobot()
+	monitor.RunRobot()
 }
 
 func printBanner() {
-	version := "0.28"
+	version := "V0.36"
 	fmt.Println("[ ---------------------------------------------------------->>> ")
-	fmt.Println(" BTC/LTC robot version ", version)
-	fmt.Println(" *BTC/LTC操盘手自动化交易引擎*")
+	fmt.Println(" BTC/LTC自动化算法交易引擎", version)
 	fmt.Println(" btcrobot is a Bitcoin, Litecoin and Altcoin trading bot written in golang")
 	fmt.Println(" it features multiple trading methods using technical analysis.")
 	fmt.Println(" ")
-	fmt.Println(" Disclaimer: USE AT YOUR OWN RISK!")
+	fmt.Println(" Disclaimer: USE AT YOUR OWN RISK! ")
+	fmt.Println(" 声明: 软件可能存在缺陷及逻辑漏洞等，请仔细测试，认证评估，风险自负！")
 	fmt.Println(" ")
-	fmt.Println(" 理性投机，风控第一.")
-	fmt.Println(" ")
-	fmt.Println(" *@feedback [btcrobot]http://weibo.com/bocaicfa")
 	fmt.Println(" *@请在浏览器中打开 http://127.0.0.1:9090 配置相关参数")
 	fmt.Println(" *@警告：API key和密码存放在conf/secret.json文件内，共享给他人前请务必删除，注意账号安全！！")
 	fmt.Println(" <<<----------------------------------------------------------] ")
@@ -66,9 +66,18 @@ func printBanner() {
 // 保存PID
 func SavePid() {
 	pidFile := Config["pid"]
+	if pidFile == "" {
+		pidFile = "pid/btcrobot.pid"
+	}
+
 	if !filepath.IsAbs(Config["pid"]) {
 		pidFile = ROOT + "/" + pidFile
 	}
-	// TODO：错误不处理
-	process.SavePidTo(pidFile)
+
+	// 保存pid
+	pidPath := filepath.Dir(pidFile)
+	if err := os.MkdirAll(pidPath, 0777); err != nil {
+		return
+	}
+	ioutil.WriteFile(pidFile, []byte(strconv.Itoa(os.Getpid())), 0777)
 }

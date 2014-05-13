@@ -19,12 +19,12 @@
 package okcoin
 
 import (
+	. "common"
 	. "config"
 	"fmt"
 	"io/ioutil"
 	"logger"
 	"net/http"
-	"strategy"
 	"strconv"
 	"strings"
 	"time"
@@ -58,7 +58,7 @@ import (
 	/for ltc
 	https://www.okcoin.com/klineData.do?type=3&marketFrom=3
 */
-func (w *Okcoin) AnalyzeKLinePeroid(symbol string, peroid int) (ret bool) {
+func (w *Okcoin) AnalyzeKLinePeroid(symbol string, peroid int) (ret bool, records []Record) {
 	var oksymbol string
 	if symbol == "btc_cny" {
 		oksymbol = "okcoinbtccny"
@@ -66,74 +66,63 @@ func (w *Okcoin) AnalyzeKLinePeroid(symbol string, peroid int) (ret bool) {
 		oksymbol = "okcoinltccny"
 	}
 
+	ret = false
 	now := time.Now().UnixNano() / 1000000
 
-	req, err := http.NewRequest("GET", fmt.Sprintf("https://www.okcoin.com/kline/period.do?step=%d&symbol=%s&nonce=%d", 60*peroid, oksymbol, now), nil)
+	req, err := http.NewRequest("GET", fmt.Sprintf(Config["ok_kline_url"], 60*peroid, oksymbol, now), nil)
 	if err != nil {
 		logger.Fatal(err)
-		return false
+		return
 	}
 
-	req.Header.Set("Referer", "https://www.okcoin.com/")
+	req.Header.Set("Referer", Config["ok_base_url"])
 	req.Header.Add("Connection", "keep-alive")
 	req.Header.Add("User-Agent", "Mozilla/5.0 (Windows NT 5.1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/31.0.1650.63 Safari/537.36")
 
 	logger.Traceln(req)
 
 	c := util.NewTimeoutClient()
-	logger.Tracef("HTTP req begin AnalyzeKLinePeroid")
+	logger.Tracef("okHTTP req begin")
 	resp, err := c.Do(req)
-	logger.Tracef("HTTP req end AnalyzeKLinePeroid")
+	logger.Tracef("okHTTP req end")
 	if err != nil {
 		logger.Traceln(err)
-		return false
+		return
 	}
 
 	defer resp.Body.Close()
-	if resp.StatusCode == 200 {
-		var body string
-
-		contentEncoding := resp.Header.Get("Content-Encoding")
-		logger.Tracef("HTTP returned Content-Encoding %s", contentEncoding)
-		switch contentEncoding {
-		case "gzip":
-			body = DumpGZIP(resp.Body)
-
-		default:
-			bodyByte, err := ioutil.ReadAll(resp.Body)
-			if err != nil {
-				logger.Errorln("read the http stream failed")
-				return false
-			} else {
-				body = string(bodyByte)
-
-				ioutil.WriteFile(fmt.Sprintf("cache/okTradeKLine_%03d.data", peroid), bodyByte, 0644)
-			}
-		}
-
-		logger.Traceln(resp.Header.Get("Content-Type"))
-
-		return w.analyzePeroidLine(fmt.Sprintf("cache/okTradeKLine_%03d.data", peroid), body)
-	} else {
+	if resp.StatusCode != 200 {
 		logger.Tracef("HTTP returned status %v", resp)
+		return
 	}
 
-	return false
+	var body string
+	contentEncoding := resp.Header.Get("Content-Encoding")
+
+	logger.Tracef("HTTP returned Content-Encoding %s", contentEncoding)
+	logger.Traceln(resp.Header.Get("Content-Type"))
+
+	switch contentEncoding {
+	case "gzip":
+		body = util.DumpGZIP(resp.Body)
+
+	default:
+		bodyByte, err := ioutil.ReadAll(resp.Body)
+		if err != nil {
+			logger.Errorln("read the http stream failed")
+			return
+		} else {
+			body = string(bodyByte)
+
+			ioutil.WriteFile(fmt.Sprintf("cache/okTradeKLine_%03d.data", peroid), bodyByte, 0644)
+		}
+	}
+
+	return analyzePeroidLine(body)
 }
 
-type PeroidRecord struct {
-	Time   int64
-	zero1  int64
-	zero2  int64
-	Open   float64
-	Close  float64
-	Low    float64
-	High   float64
-	Volumn float64
-}
-
-func parsePeroidArray(content string) (ret bool, PeroidRecords []PeroidRecord) {
-	logger.Traceln("Okcoin parsePeroidArray begin....")
+func analyzePeroidLine(content string) (ret bool, records []Record) {
+	logger.Traceln("Okcoin analyzePeroidLine begin....")
 	content = strings.TrimPrefix(content, "[[")
 	content = strings.TrimSuffix(content, "]]")
 
@@ -146,19 +135,19 @@ func parsePeroidArray(content string) (ret bool, PeroidRecords []PeroidRecord) {
 			return
 		}
 
-		var peroidRecord PeroidRecord
+		var record Record
 		Time, err := strconv.ParseInt(v[0], 0, 64)
 		if err != nil {
 			logger.Debugln("config item is not float")
 			return
 		}
 
-		zero1, err := strconv.ParseInt(v[1], 0, 64)
+		_, err = strconv.ParseInt(v[1], 0, 64)
 		if err != nil {
 			logger.Debugln("config item is not float")
 			return
 		}
-		zero2, err := strconv.ParseInt(v[2], 0, 64)
+		_, err = strconv.ParseInt(v[2], 0, 64)
 		if err != nil {
 			logger.Debugln("config item is not float")
 			return
@@ -176,13 +165,13 @@ func parsePeroidArray(content string) (ret bool, PeroidRecords []PeroidRecord) {
 			return
 		}
 
-		Low, err := strconv.ParseFloat(v[5], 64)
+		High, err := strconv.ParseFloat(v[5], 64)
 		if err != nil {
 			logger.Debugln("config item is not float")
 			return
 		}
 
-		High, err := strconv.ParseFloat(v[6], 64)
+		Low, err := strconv.ParseFloat(v[6], 64)
 		if err != nil {
 			logger.Debugln("config item is not float")
 			return
@@ -194,53 +183,22 @@ func parsePeroidArray(content string) (ret bool, PeroidRecords []PeroidRecord) {
 			return
 		}
 
-		peroidRecord.Time = Time
-		peroidRecord.zero1 = zero1
-		peroidRecord.zero2 = zero2
+		const layout = "2006-01-02 15:04:05"
+		t := time.Unix(Time, 0)
+		record.TimeStr = t.Format(layout)
+		record.Time = Time
+		record.Open = Open
+		record.High = High
+		record.Low = Low
+		record.Close = Close
+		record.Volumn = Volumn
 
-		peroidRecord.Open = Open
-		peroidRecord.High = High
-		peroidRecord.Low = Low
-		peroidRecord.Close = Close
-		peroidRecord.Volumn = Volumn
+		//logger.Traceln(records)
 
-		//logger.Traceln(peroidRecord)
-
-		PeroidRecords = append(PeroidRecords, peroidRecord)
+		records = append(records, record)
 	}
 
 	logger.Traceln("Okcoin parsePeroidArray end....")
 	ret = true
 	return
-}
-
-func (w *Okcoin) analyzePeroidLine(filename string, content string) bool {
-	//logger.Infoln(content)
-	//logger.Infoln(filename)
-	ret, PeroidRecords := parsePeroidArray(content)
-	if ret == false {
-		logger.Errorln("Okcoin parsePeroidArray failed....")
-		return false
-	}
-	//logger.Traceln(PeroidRecords)
-	//return true
-	var Time []string
-	var Price []float64
-	var Volumn []float64
-	for _, v := range PeroidRecords {
-		const layout = "2006-01-02 15:04:05"
-		t := time.Unix(v.Time, 0)
-		Time = append(Time, t.Format(layout))
-		Price = append(Price, v.Close)
-		Volumn = append(Volumn, v.Volumn)
-	}
-
-	//logger.Infoln(Time[len(Time)-1], Price[len(Time)-1], Volumn[len(Time)-1])
-	w.Time = Time
-	w.Price = Price
-	w.Volumn = Volumn
-	strategyName := Option["strategy"]
-	strategy.Perform(strategyName, *w, Time, Price, Volumn)
-
-	return true
 }

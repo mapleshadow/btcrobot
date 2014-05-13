@@ -11,8 +11,8 @@ goto end
 set OLDGOPATH=%GOPATH%
 set GOPATH=%~dp0
 
-go get -u github.com/studygolang/mux
-go get -u github.com/gorilla/sessions
+go get -u github.com/go-martini/martini
+go get -u github.com/codegangsta/martini-contrib/auth
 
 set GOPATH=%OLDGOPATH%
 

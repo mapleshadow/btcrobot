@@ -18,7 +18,7 @@
 package okcoin
 
 import (
-	"compress/gzip"
+	. "config"
 	"crypto/md5"
 	"encoding/json"
 	"fmt"
@@ -131,7 +131,7 @@ func (w *OkcoinTrade) httpRequest(api_url string, pParams map[string]string) (st
 
 		switch contentEncoding {
 		case "gzip":
-			body = DumpGZIP(resp.Body)
+			body = util.DumpGZIP(resp.Body)
 
 		default:
 			bodyByte, _ := ioutil.ReadAll(resp.Body)
@@ -155,22 +155,6 @@ type ErrorMsg struct {
 	ErrorCode int
 }
 
-type Order struct {
-	Orders_id   int
-	Status      int
-	Symbol      string
-	Type        string
-	Rate        int
-	Amount      float64
-	Deal_amount float64
-	Avg_rate    int
-}
-
-type OrderTable struct {
-	Result bool
-	Orders []Order
-}
-
 func (w *OkcoinTrade) check_json_result(body string) (errorMsg ErrorMsg, ret bool) {
 	if strings.Contains(body, "result") != true {
 		ret = false
@@ -183,6 +167,7 @@ func (w *OkcoinTrade) check_json_result(body string) (errorMsg ErrorMsg, ret boo
 		logger.Traceln(err)
 	} else if err != nil {
 		logger.Fatal(err)
+		logger.Fatalln(body)
 	}
 
 	if errorMsg.Result != true {
@@ -234,14 +219,13 @@ type UserInfo struct {
 	Info   Info
 }
 
-func (w *OkcoinTrade) Get_account_info() (userInfo UserInfo, ret bool) {
-	api_url := "https://www.okcoin.com/api/userinfo.do"
+func (w *OkcoinTrade) GetAccount() (userInfo UserInfo, ret bool) {
 	pParams := make(map[string]string)
 	pParams["partner"] = w.partner
 
 	ret = true
 
-	body, err := w.httpRequest(api_url, pParams)
+	body, err := w.httpRequest(Config["ok_api_userinfo"], pParams)
 	if err != nil {
 		ret = false
 		return
@@ -268,8 +252,23 @@ func (w *OkcoinTrade) Get_account_info() (userInfo UserInfo, ret bool) {
 	return
 }
 
-func (w *OkcoinTrade) Get_order(symbol, order_id string) (m OrderTable, ret bool) {
-	api_url := "https://www.okcoin.com/api/getorder.do"
+type OKOrder struct {
+	Orders_id   int
+	Status      int
+	Symbol      string
+	Type        string
+	Rate        float64
+	Amount      float64
+	Deal_amount float64
+	Avg_rate    float64
+}
+
+type OKOrderTable struct {
+	Result bool
+	Orders []OKOrder
+}
+
+func (w *OkcoinTrade) Get_order(symbol, order_id string) (ret bool, m OKOrderTable) {
 	pParams := make(map[string]string)
 	pParams["partner"] = w.partner
 	pParams["symbol"] = symbol
@@ -277,7 +276,7 @@ func (w *OkcoinTrade) Get_order(symbol, order_id string) (m OrderTable, ret bool
 
 	ret = true
 
-	body, err := w.httpRequest(api_url, pParams)
+	body, err := w.httpRequest(Config["ok_api_getorder"], pParams)
 	if err != nil {
 		ret = false
 		return
@@ -293,30 +292,29 @@ func (w *OkcoinTrade) Get_order(symbol, order_id string) (m OrderTable, ret bool
 	if err := doc.Decode(&m); err == io.EOF {
 		logger.Traceln(err)
 	} else if err != nil {
-		logger.Fatal(err)
+		logger.Errorln(err)
+		logger.Errorln(body)
+		logger.Errorln(m)
 	}
-
-	logger.Traceln(m)
 
 	return
 }
 
-func (w *OkcoinTrade) Get_BTCorder(order_id string) (m OrderTable, ret bool) {
+func (w *OkcoinTrade) Get_BTCorder(order_id string) (ret bool, m OKOrderTable) {
 	return w.Get_order("btc_cny", order_id)
 }
 
-func (w *OkcoinTrade) Get_LTCorder(order_id string) (m OrderTable, ret bool) {
+func (w *OkcoinTrade) Get_LTCorder(order_id string) (ret bool, m OKOrderTable) {
 	return w.Get_order("ltc_cny", order_id)
 }
 
 func (w *OkcoinTrade) Cancel_order(symbol, order_id string) bool {
-	api_url := "https://www.okcoin.com/api/cancelorder.do"
 	pParams := make(map[string]string)
 	pParams["partner"] = w.partner
 	pParams["symbol"] = symbol
 	pParams["order_id"] = order_id
 
-	body, err := w.httpRequest(api_url, pParams)
+	body, err := w.httpRequest(Config["ok_api_cancelorder"], pParams)
 	if err != nil {
 		return false
 	}
@@ -357,7 +355,6 @@ func (w *OkcoinTrade) Cancel_LTCorder(order_id string) (ret bool) {
 }
 
 func (w *OkcoinTrade) doTrade(symbol, method, rate, amount string) int {
-	api_url := "https://www.okcoin.com/api/trade.do"
 	pParams := make(map[string]string)
 	pParams["partner"] = w.partner
 	pParams["symbol"] = symbol
@@ -365,7 +362,7 @@ func (w *OkcoinTrade) doTrade(symbol, method, rate, amount string) int {
 	pParams["rate"] = rate
 	pParams["amount"] = amount
 
-	body, err := w.httpRequest(api_url, pParams)
+	body, err := w.httpRequest(Config["ok_api_trade"], pParams)
 	if err != nil {
 		return 0
 	}
@@ -435,23 +432,4 @@ func (w *OkcoinTrade) BuyMarketLTC(price, amount string) string {
 func (w *OkcoinTrade) SellMarketLTC(price, amount string) string {
 	sellId := w.doTrade("ltc_cny", "sell_market", price, amount)
 	return (fmt.Sprintf("%d", sellId))
-}
-
-func DumpGZIP(r io.Reader) string {
-	var body string
-	reader, _ := gzip.NewReader(r)
-	for {
-		buf := make([]byte, 1024)
-		n, err := reader.Read(buf)
-
-		if err != nil && err != io.EOF {
-			panic(err)
-		}
-
-		if n == 0 {
-			break
-		}
-		body += string(buf)
-	}
-	return body
 }

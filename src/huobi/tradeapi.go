@@ -74,14 +74,14 @@ func (w *HuobiTrade) httpRequest(pParams map[string]string) (string, error) {
 		v.Add(key, val)
 	}
 
-	req, err := http.NewRequest("POST", Config["api_url"], strings.NewReader(v.Encode()))
+	req, err := http.NewRequest("POST", Config["hb_api_url"], strings.NewReader(v.Encode()))
 	if err != nil {
 		logger.Fatal(err)
 		return "", err
 	}
 
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Set("Referer", "https://www.huobi.com/")
+	req.Header.Set("Referer", Config["hb_base_url"])
 	req.Header.Add("Connection", "keep-alive")
 	req.Header.Add("User-Agent", "Mozilla/5.0 (Windows NT 5.1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/31.0.1650.63 Safari/537.36")
 	logger.Traceln(req)
@@ -108,7 +108,7 @@ func (w *HuobiTrade) httpRequest(pParams map[string]string) (string, error) {
 
 		switch contentEncoding {
 		case "gzip":
-			body = DumpGZIP(resp.Body)
+			body = util.DumpGZIP(resp.Body)
 
 		default:
 			bodyByte, _ := ioutil.ReadAll(resp.Body)
@@ -133,7 +133,7 @@ type ErrorMsg struct {
 	Time int
 }
 
-type Order struct {
+type HBOrder struct {
 	Id               int
 	Type             int
 	order_price      string
@@ -177,7 +177,7 @@ type Account_info struct {
 	Loan_btc_display      string
 }
 
-func (w *HuobiTrade) Get_account_info() (account_info Account_info, ret bool) {
+func (w *HuobiTrade) GetAccount() (account_info Account_info, ret bool) {
 	pParams := make(map[string]string)
 	pParams["method"] = "get_account_info"
 	pParams["access_key"] = w.access_key
@@ -211,7 +211,7 @@ func (w *HuobiTrade) Get_account_info() (account_info Account_info, ret bool) {
 	return
 }
 
-func (w *HuobiTrade) Get_orders() (m []Order, ret bool) {
+func (w *HuobiTrade) Get_orders() (ret bool, m []HBOrder) {
 	pParams := make(map[string]string)
 	pParams["method"] = "get_orders"
 	pParams["access_key"] = w.access_key
@@ -245,7 +245,7 @@ func (w *HuobiTrade) Get_orders() (m []Order, ret bool) {
 	return
 }
 
-func (w *HuobiTrade) Get_order_info(id string) (string, error) {
+func (w *HuobiTrade) Get_order(id string) (string, error) {
 	pParams := make(map[string]string)
 	pParams["method"] = "order_info"
 	pParams["access_key"] = w.access_key

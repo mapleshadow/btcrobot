@@ -7,7 +7,7 @@
   USE AT YOUR OWN RISK!
 
   The author of this project is NOT responsible for any damage or loss caused
-  by this software. There can be bugs and the bot may not perform as expected
+  by this software. There can be bugs and the bot may not Tick as expected
   or specified. Please consider testing it first with paper trading /
   backtesting on historical data. Also look at the code to see what how
   it's working.
@@ -18,9 +18,8 @@
 package strategy
 
 import (
+	. "common"
 	. "config"
-	"email"
-	"fmt"
 	"logger"
 	"strconv"
 )
@@ -108,33 +107,17 @@ func (emamacdStrategy *EMAMACDStrategy) is_downcross(prevema, ema float64) bool 
 }
 
 //EMA strategy
-func (emamacdStrategy *EMAMACDStrategy) Perform(tradeAPI TradeAPI, Time []string, Price []float64, Volumn []float64) bool {
+func (emamacdStrategy *EMAMACDStrategy) Tick(records []Record) bool {
 	//read config
-	shortEMA, _ := strconv.Atoi(Option["shortEMA"])
-	longEMA, _ := strconv.Atoi(Option["longEMA"])
-	signalPeriod, _ := strconv.Atoi(Option["signalPeriod"])
-
-	nTradeAmount, err := strconv.ParseFloat(Option["tradeAmount"], 64)
-	if err != nil {
-		logger.Errorln("config item tradeAmount is not float")
-		return false
-	}
-
-	MacdTradeAmount := fmt.Sprintf("%0.02f", 0.5*nTradeAmount)
-
-	tradeAmount := Option["tradeAmount"]
-
 	stoploss, err := strconv.ParseFloat(Option["stoploss"], 64)
 	if err != nil {
 		logger.Errorln("config item stoploss is not float")
 		return false
 	}
 
-	MACDbuyThreshold, err := strconv.ParseFloat(Option["MACDbuyThreshold"], 64)
-	if err != nil {
-		logger.Errorln("config item MACDbuyThreshold is not float")
-		return false
-	}
+	shortEMA, _ := strconv.Atoi(Option["shortEMA"])
+	longEMA, _ := strconv.Atoi(Option["longEMA"])
+	signalPeriod, _ := strconv.Atoi(Option["signalPeriod"])
 
 	MACDsellThreshold, err := strconv.ParseFloat(Option["MACDsellThreshold"], 64)
 	if err != nil {
@@ -142,10 +125,21 @@ func (emamacdStrategy *EMAMACDStrategy) Perform(tradeAPI TradeAPI, Time []string
 		return false
 	}
 
+	var Time []string
+	var Price []float64
+	var Volumn []float64
+	for _, v := range records {
+		Time = append(Time, v.TimeStr)
+		Price = append(Price, v.Close)
+		Volumn = append(Volumn, v.Volumn)
+		//Price = append(Price, (v.Close+v.Open+v.High+v.Low)/4.0)
+		//Price = append(Price, v.Low)
+	}
+
 	//compute the indictor
 	emaShort := EMA(Price, shortEMA)
 	emaLong := EMA(Price, longEMA)
-	EMAdif := getEMAdif(emaShort, emaLong)
+	EMAdif := getMACDdif(emaShort, emaLong)
 
 	MACDdif := getMACDdif(emaShort, emaLong)
 	MACDSignal := getMACDSignal(MACDdif, signalPeriod)
@@ -170,15 +164,15 @@ func (emamacdStrategy *EMAMACDStrategy) Perform(tradeAPI TradeAPI, Time []string
 		}
 	}
 
-	if MACDdif[length-1] != emamacdStrategy.PrevMACDdif {
-		emamacdStrategy.PrevMACDdif = MACDdif[length-1]
-		logger.Infof("MACD:d%5.03f\ts%5.03f\tph%5.03f\th%5.03f\tPrice:%5.02f\n", MACDdif[length-1], MACDSignal[length-1], MACDHistogram[length-2], MACDHistogram[length-1], Price[length-1])
-	}
-
 	//go TriggerPrice(Price[length-1])
 	if EMAdif[length-1] != emamacdStrategy.PrevEMAdif {
 		emamacdStrategy.PrevEMAdif = EMAdif[length-1]
-		logger.Infof("EMA Diff: %0.03f\t%0.03f\t%0.03f\tPrice:%0.02f\n", emaLong[length-1], EMAdif[length-2], EMAdif[length-1], Price[length-1])
+		logger.Infof("EMA [%0.02f,%0.02f,%0.02f] Diff:%0.03f\t%0.03f\n", Price[length-1], emaShort[length-1], emaLong[length-1], EMAdif[length-2], EMAdif[length-1])
+	}
+
+	if MACDdif[length-1] != emamacdStrategy.PrevMACDdif {
+		emamacdStrategy.PrevMACDdif = MACDdif[length-1]
+		logger.Infof("MACD:d=%5.03f\ts=%5.03f\th=%5.03f\tpre-h=%5.03f\n", MACDdif[length-1], MACDSignal[length-1], MACDHistogram[length-1], MACDHistogram[length-2])
 	}
 
 	//reset LessBuyThreshold LessSellThreshold flag when (^ or V) happen
@@ -195,59 +189,18 @@ func (emamacdStrategy *EMAMACDStrategy) Perform(tradeAPI TradeAPI, Time []string
 	}
 
 	//EMA cross
-	if (emamacdStrategy.is_upcross(EMAdif[length-2], EMAdif[length-1]) || emamacdStrategy.LessBuyThreshold) ||
-		(emamacdStrategy.is_downcross(EMAdif[length-2], EMAdif[length-1]) || emamacdStrategy.LessSellThreshold) { //up cross
+	if emamacdStrategy.is_upcross(EMAdif[length-2], EMAdif[length-1]) || emamacdStrategy.LessBuyThreshold { //up cross
 
 		//do buy when cross up
 		if emamacdStrategy.is_upcross(EMAdif[length-2], EMAdif[length-1]) || emamacdStrategy.LessBuyThreshold {
-			if Option["disable_trading"] != "1" && emamacdStrategy.PrevEMATrade != "buy" {
+			if Option["enable_trading"] == "1" && emamacdStrategy.PrevEMATrade != "buy" {
 
 				emamacdStrategy.PrevEMACross = "up"
 
 				if emamacdStrategy.checkThreshold("buy", EMAdif[length-1]) {
 					emamacdStrategy.PrevEMATrade = "buy"
-					diff := fmt.Sprintf("%0.03f", EMAdif[length-1])
-					warning := "EMA up cross, 买入buy In<----市价" + tradeAPI.GetTradePrice("") +
-						",委托价" + tradeAPI.GetTradePrice("buy") + ",diff" + diff
-					logger.Infoln(warning)
-					if tradeAPI.Buy(tradeAPI.GetTradePrice("buy"), tradeAmount) {
-						emamacdStrategy.PrevBuyPirce = Price[length-1]
-						warning += "[委托成功]"
-					} else {
-						warning += "[委托失败]"
-					}
-
-					go email.TriggerTrender(warning)
-				}
-			}
-		}
-
-		//do sell when cross down
-		if emamacdStrategy.is_downcross(EMAdif[length-2], EMAdif[length-1]) || emamacdStrategy.LessSellThreshold {
-			emamacdStrategy.PrevEMACross = "down"
-			if Option["disable_trading"] != "1" && emamacdStrategy.PrevEMATrade != "sell" {
-				if emamacdStrategy.checkThreshold("sell", EMAdif[length-1]) {
-					emamacdStrategy.PrevEMATrade = "sell"
-					diff := fmt.Sprintf("%0.03f", EMAdif[length-1])
-					warning := "EMA down cross, 卖出Sell Out---->市价" + tradeAPI.GetTradePrice("") +
-						",委托价" + tradeAPI.GetTradePrice("sell") + ",diff" + diff
-					logger.Infoln(warning)
-
-					var ematradeAmount string
-					if emamacdStrategy.PrevMACDTrade == "sell" {
-						ematradeAmount = MacdTradeAmount
-						emamacdStrategy.PrevMACDTrade = "init"
-					} else {
-						ematradeAmount = tradeAmount
-					}
-
-					if tradeAPI.Sell(tradeAPI.GetTradePrice("sell"), ematradeAmount) {
-						warning += "[委托成功]"
-					} else {
-						warning += "[委托失败]"
-					}
-
-					go email.TriggerTrender(warning)
+					emamacdStrategy.PrevMACDTrade = "init"
+					Buy()
 				}
 			}
 		}
@@ -259,71 +212,29 @@ func (emamacdStrategy *EMAMACDStrategy) Perform(tradeAPI TradeAPI, Time []string
 	}
 
 	//macd cross
-	if MACDdif[length-1] > 0 {
-		if (MACDHistogram[length-2] < -0.000001 && MACDHistogram[length-1] > MACDbuyThreshold) ||
-			(emamacdStrategy.PrevMACDTrade == "sell" && MACDHistogram[length-2] > 0.000001 && MACDHistogram[length-1] > MACDbuyThreshold) {
-			if Option["disable_trading"] != "1" && emamacdStrategy.PrevMACDTrade == "sell" {
-				emamacdStrategy.PrevMACDTrade = "buy"
-				histogram := fmt.Sprintf("%0.03f", MACDHistogram[length-1])
-				warning := "MACD up cross, 买入buy In<----市价" + tradeAPI.GetTradePrice("") +
-					",委托价" + tradeAPI.GetTradePrice("buy") + ",histogram" + histogram
-				logger.Infoln(warning)
-				if tradeAPI.Buy(tradeAPI.GetTradePrice("buy"), MacdTradeAmount) {
-					emamacdStrategy.PrevBuyPirce = Price[length-1]
-					warning += "[委托成功]"
-				} else {
-					warning += "[委托失败]"
-				}
+	if EMAdif[length-1] > 0 || emamacdStrategy.PrevEMATrade == "buy" {
+		if (MACDHistogram[length-2] > 0.000001 && MACDHistogram[length-1] < MACDsellThreshold) &&
+			emamacdStrategy.PrevMACDTrade != "sell" {
+			emamacdStrategy.PrevMACDTrade = "sell"
+			emamacdStrategy.PrevBuyPirce = 0
+			emamacdStrategy.PrevEMATrade = "sell"
 
-				go email.TriggerTrender(warning)
-			}
-		} else if (Price[length-1] < emaLong[length-1]) &&
-			((MACDHistogram[length-2] > 0.000001 && MACDHistogram[length-1] < MACDsellThreshold) ||
-				(emamacdStrategy.PrevMACDTrade == "buy" && MACDHistogram[length-2] < -0.000001 && MACDHistogram[length-1] < MACDsellThreshold)) {
-			if Option["disable_trading"] != "1" && emamacdStrategy.PrevMACDTrade != "sell" {
-				emamacdStrategy.PrevMACDTrade = "sell"
-				histogram := fmt.Sprintf("%0.03f", MACDHistogram[length-1])
-				warning := "MACD down cross, 卖出Sell Out---->市价" + tradeAPI.GetTradePrice("") +
-					",委托价" + tradeAPI.GetTradePrice("sell") + ",histogram" + histogram
-				logger.Infoln(warning)
-				if tradeAPI.Sell(tradeAPI.GetTradePrice("sell"), MacdTradeAmount) {
-					warning += "[委托成功]"
-				} else {
-					warning += "[委托失败]"
-				}
-
-				go email.TriggerTrender(warning)
-			}
+			Sell()
 		}
 	}
 
 	//do sell when price is below stoploss point
 	if Price[length-1] < emamacdStrategy.PrevBuyPirce*(1-stoploss*0.01) {
-		if Option["disable_trading"] != "1" && emamacdStrategy.PrevEMATrade != "sell" {
 
-			warning := "stop loss, 卖出Sell Out---->市价" + tradeAPI.GetTradePrice("") + ",委托价" + tradeAPI.GetTradePrice("sell")
-			logger.Infoln(warning)
-
-			var ematradeAmount string
-			if emamacdStrategy.PrevMACDTrade == "sell" {
-				ematradeAmount = MacdTradeAmount
-			} else {
-				ematradeAmount = tradeAmount
-			}
-
-			if tradeAPI.Sell(tradeAPI.GetTradePrice("sell"), ematradeAmount) {
-				warning += "[委托成功]"
-			} else {
-				warning += "[委托失败]"
-			}
-
-			go email.TriggerTrender(warning)
-
-			emamacdStrategy.PrevEMATrade = "sell"
-			emamacdStrategy.PrevMACDTrade = "init"
-			emamacdStrategy.PrevBuyPirce = 0
-		}
+		emamacdStrategy.PrevEMATrade = "sell"
+		emamacdStrategy.PrevMACDTrade = "init"
+		emamacdStrategy.PrevBuyPirce = 0
 	}
+
+	//do sell when price is below stoploss point
+	processStoploss(Price)
+
+	processTimeout()
 
 	return true
 }

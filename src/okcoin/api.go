@@ -18,21 +18,32 @@
 package okcoin
 
 import (
-	"common"
+	. "common"
 	. "config"
-	"fmt"
 	"logger"
-	"net/http"
-	"strconv"
 	"time"
 )
 
-type Okcoin struct {
-	client *http.Client
+var ErrorCodeMap = map[int64]string{
+	10000: "必选参数不能为空",
+	10001: "用户请求过于频繁",
+	10002: "系统错误",
+	10003: "未在请求限制列表中,稍后请重试",
+	10004: "IP限制不能请求该资源",
+	10005: "密钥不存在",
+	10006: "用户不存在",
+	10007: "签名不匹配",
+	10008: "非法参数",
+	10009: "订单不存在",
+	10010: "余额不足",
+	10011: "买卖的数量小于BTC/LTC最小买卖额度",
+	10012: "当前网站暂时只支持btc_cny ltc_cny",
+	10013: "此接口只支持https请求",
+	10014: "下单价格不得≤0或≥1000000",
+	10015: "下单价格与最新成交价偏差过大",
+}
 
-	Time   []string
-	Price  []float64
-	Volumn []float64
+type Okcoin struct {
 }
 
 func NewOkcoin() *Okcoin {
@@ -40,50 +51,73 @@ func NewOkcoin() *Okcoin {
 	return w
 }
 
-func (w Okcoin) GetOrderBook(symbol string) (ret bool) {
-	return false
+func (w Okcoin) CancelOrder(order_id string) (ret bool) {
+	tradeAPI := NewOkcoinTrade(SecretOption["ok_partner"], SecretOption["ok_secret_key"])
+	symbol := Option["symbol"]
+	return tradeAPI.Cancel_order(symbol, order_id)
 }
 
-func (w Okcoin) AnalyzeKLine(peroid int) (ret bool) {
+func (w Okcoin) GetOrderBook() (ret bool, orderBook OrderBook) {
+	symbol := Option["symbol"]
+	return w.getOrderBook(symbol)
+}
+
+func (w Okcoin) GetOrder(order_id string) (ret bool, order Order) {
+	symbol := Option["symbol"]
+	tradeAPI := NewOkcoinTrade(SecretOption["ok_partner"], SecretOption["ok_secret_key"])
+
+	ret, ok_orderTable := tradeAPI.Get_order(symbol, order_id)
+	if ret == false {
+		return
+	}
+
+	order.Id = ok_orderTable.Orders[0].Orders_id
+	order.Price = ok_orderTable.Orders[0].Avg_rate
+	order.Amount = ok_orderTable.Orders[0].Amount
+	order.Deal_amount = ok_orderTable.Orders[0].Deal_amount
+
+	return
+}
+
+func (w Okcoin) GetKLine(peroid int) (ret bool, records []Record) {
 	symbol := Option["symbol"]
 	return w.AnalyzeKLinePeroid(symbol, peroid)
 }
 
-func (w Okcoin) Get_account_info() (userMoney common.UserMoney, ret bool) {
+func (w Okcoin) GetAccount() (account Account, ret bool) {
 	tradeAPI := NewOkcoinTrade(SecretOption["ok_partner"], SecretOption["ok_secret_key"])
 
-	userInfo, ret := tradeAPI.Get_account_info()
+	userInfo, ret := tradeAPI.GetAccount()
 
 	if !ret {
-		logger.Traceln("okcoin Get_account_info failed")
+		logger.Traceln("okcoin GetAccount failed")
 		return
 	} else {
 		logger.Traceln(userInfo)
 
-		userMoney.Available_cny = userInfo.Info.Funds.Free.CNY
-		userMoney.Available_btc = userInfo.Info.Funds.Free.BTC
-		userMoney.Available_ltc = userInfo.Info.Funds.Free.LTC
+		account.Available_cny = userInfo.Info.Funds.Free.CNY
+		account.Available_btc = userInfo.Info.Funds.Free.BTC
+		account.Available_ltc = userInfo.Info.Funds.Free.LTC
 
-		userMoney.Frozen_cny = userInfo.Info.Funds.Freezed.CNY
-		userMoney.Frozen_btc = userInfo.Info.Funds.Freezed.BTC
-		userMoney.Frozen_ltc = userInfo.Info.Funds.Freezed.LTC
+		account.Frozen_cny = userInfo.Info.Funds.Freezed.CNY
+		account.Frozen_btc = userInfo.Info.Funds.Freezed.BTC
+		account.Frozen_ltc = userInfo.Info.Funds.Freezed.LTC
 
 		logger.Infof("okcoin资产: \n 可用cny:%-10s \tbtc:%-10s \tltc:%-10s \n 冻结cny:%-10s \tbtc:%-10s \tltc:%-10s\n",
-			userMoney.Available_cny,
-			userMoney.Available_btc,
-			userMoney.Available_ltc,
-			userMoney.Frozen_cny,
-			userMoney.Frozen_btc,
-			userMoney.Frozen_ltc)
-		//logger.Infoln(userMoney)
+			account.Available_cny,
+			account.Available_btc,
+			account.Available_ltc,
+			account.Frozen_cny,
+			account.Frozen_btc,
+			account.Frozen_ltc)
+		//logger.Infoln(Account)
 		return
 	}
 }
 
-func (w Okcoin) Buy(tradePrice, tradeAmount string) bool {
+func (w Okcoin) Buy(tradePrice, tradeAmount string) (buyId string) {
 	tradeAPI := NewOkcoinTrade(SecretOption["ok_partner"], SecretOption["ok_secret_key"])
 
-	var buyId string
 	symbol := Option["symbol"]
 	if symbol == "btc_cny" {
 		buyId = tradeAPI.BuyBTC(tradePrice, tradeAmount)
@@ -97,24 +131,14 @@ func (w Okcoin) Buy(tradePrice, tradeAmount string) bool {
 		logger.Infoln("执行买入委托失败", tradePrice, tradeAmount)
 	}
 
-	time.Sleep(3 * time.Second)
-	_, ret := w.Get_account_info()
+	time.Sleep(2 * time.Second)
 
-	if !ret {
-		logger.Infoln("Get_account_info failed")
-	}
-
-	if buyId != "0" {
-		return true
-	} else {
-		return false
-	}
+	return buyId
 }
 
-func (w Okcoin) Sell(tradePrice, tradeAmount string) bool {
+func (w Okcoin) Sell(tradePrice, tradeAmount string) (sellId string) {
 	tradeAPI := NewOkcoinTrade(SecretOption["ok_partner"], SecretOption["ok_secret_key"])
 
-	var sellId string
 	symbol := Option["symbol"]
 	if symbol == "btc_cny" {
 		sellId = tradeAPI.SellBTC(tradePrice, tradeAmount)
@@ -128,38 +152,11 @@ func (w Okcoin) Sell(tradePrice, tradeAmount string) bool {
 	}
 
 	time.Sleep(3 * time.Second)
-	_, ret := w.Get_account_info()
+	_, ret := w.GetAccount()
 
 	if !ret {
-		logger.Infoln("Get_account_info failed")
+		logger.Infoln("GetAccount failed")
 	}
 
-	if sellId != "0" {
-		return true
-	} else {
-		return false
-	}
-}
-
-func (w Okcoin) GetTradePrice(tradeDirection string) string {
-	if len(w.Price) == 0 {
-		logger.Errorln("get price failed, array len=0")
-		return "false"
-	}
-
-	slippage, err := strconv.ParseFloat(Option["slippage"], 64)
-	if err != nil {
-		logger.Debugln("config item slippage is not float")
-		slippage = 0
-	}
-
-	var finalTradePrice float64
-	if tradeDirection == "buy" {
-		finalTradePrice = w.Price[len(w.Price)-1] * (1 + slippage*0.001)
-	} else if tradeDirection == "sell" {
-		finalTradePrice = w.Price[len(w.Price)-1] * (1 - slippage*0.001)
-	} else {
-		finalTradePrice = w.Price[len(w.Price)-1]
-	}
-	return fmt.Sprintf("%0.02f", finalTradePrice)
+	return sellId
 }

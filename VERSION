@@ -23,7 +23,7 @@
  				   support okcoin.com K-line via highchart
   Version 0.13
   time 2014-01-13 support EMA line to indict the time to buy and sell simulately, support diff factor
- 				   support web interface to display MA/EMA/MACD/Trender line too
+ 				   support web interface to display huobi MA/EMA/MACD/Trender line too
   Version 0.14
   time 2014-01-14 support EMA line to indict the time to buy and sell in huobi.com
   Version 0.15
@@ -56,6 +56,38 @@
                   add MACD strategy
   Version 0.28
   time 2014-03-27 fix the http request timeout issue,
-                  add MACD+EMA mix strategy
+                  add EMA+MACD+EMA mix strategy
+  Version 0.29
+  time 2014-04-02 change the EMA diff to MACD diff,
+                  support web interface to display okcoin MA/EMA/MACD/Trender line
+  Version 0.30
+  time 2014-04-08 support KDJ,
+                  support EMA+MACD(once),
+                  support order book API
+                  optimize code structure
+  Version 0.31
+  time 2014-04-13 support Open order strategy,
+                  support KDJ_EX(internal) strategy,
+                  optimize code
+  Version 0.32
+  time 2014-04-16 split K-line data and trade center,
+                  eg. trade okcoin BTC according  huobi BTC kline!
+                  trade huobi LTC according  okcoin LTC kline!
 
+                  optimze the code structure, to wirte strategy more simple now, just realize the "tick" function
+
+  Version 0.33
+  time 2014-04-23 refactor the web UI using flat design
+
+  Version 0.34
+  time 2014-04-24 support multiple okcoin API to do trade cluster.
+  
+  Version 0.35
+  time 2014-05-05 support HLCross strategy
+                  optimize the UI css
+                  add the disciple mode for EMA
+                  fix KDJ bugs div by 0
+
+  Version 0.36
+  time 2014-05-07 auto rename secret.sample to secret.json
 */
