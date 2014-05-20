@@ -157,9 +157,10 @@
             <option value="EMAMACDEMA">EMA+多次MACD+EMA</option>
             <option value="EMAMACD">EMA+单次MACD</option>
             <option value="KDJ">KDJ</option>
-            <option value="OPENORDER">盘口对冲(俗称削头皮)</option>                  
+            <option value="OPENORDER">盘口高频套利</option>                  
             <option value="HLCross">k线高低突破</option>
-            <option value="the3crow">3只乌鸦(私密)</option>
+            <option value="the3crow">3只乌鸦</option>
+            <option value="circular">循环下单</option>
             <option value="KDJ-EX">KDJ-EX(私密)</option>     
             <option value="KDJ-XC">KDJ-XC(私密)</option>    
             <option value="xxx">xxx(自定义策略)</option>
@@ -288,6 +289,30 @@
               </div>  
             </div>
           </div>
+
+        </div> <!-- /row -->
+      </div> <!-- /divkdj -->
+
+      <div id="divcircular">
+        <div class="row demo-swatches-row" >
+          <div class="col-xs-3">
+            <div class="form-group">
+              <div class="input-group">
+                <span class="input-group-addon">基准价</span>
+                <input type="text" class="form-control" placeholder="2770" id="basePrice" name="basePrice" />             
+              </div>  
+            </div>
+          </div>
+
+          <div class="col-xs-3">
+            <div class="form-group">
+              <div class="input-group">
+                <span class="input-group-addon">波动值</span>
+                <input type="text" class="form-control" placeholder="5"  id="fluctuation" name="fluctuation"/>             
+              </div>  
+            </div>
+          </div>
+
 
         </div> <!-- /row -->
       </div> <!-- /divkdj -->
@@ -428,11 +453,10 @@
               <h3 class="footer-title">捐助开发</h3>
               <ul>
                 <li>感谢您对开源的支持</li>
-                <li>您的支持让该开源软件不断优化完善</li>
-                <li>亦是各种开源项目支撑下去的核心动力之一</li>
 
-                <li>BTC：1NDnnWCUu926z4wxA3sNBGYWNQD3mKyes8</li>
-                <li>LTC：LXwX5XeZeVfXM2b4GRs6HM1mNn4K9En3F4</li>
+                <li>BTC： 1NDnnWCUu926z4wxA3sNBGYWNQD3mKyes8</li>
+                <li>LTC： LXwX5XeZeVfXM2b4GRs6HM1mNn4K9En3F4</li>
+                <li>Doge：DNp3z6yf2bvKPYfU2bN1SpGXPXGFFM9A43</li>
 
                 <li><a href="https://github.com/philsong/btcrobot/wiki/%E6%84%9F%E8%B0%A2%E6%8D%90%E5%8A%A9%E5%BC%80%E5%8F%91%E7%9A%84%E4%BA%BA" target="_blank">捐助人员列表</a></li>
               </ul>

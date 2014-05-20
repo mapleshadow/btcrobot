@@ -6,7 +6,10 @@ function _onStrategyUI(strategy) {
   var MACDsellThreshold = document.getElementById("divMACDsellThreshold");
   var emaid = document.getElementById("divema");
   var kdjid = document.getElementById("divkdj");
+  var circularid =document.getElementById("divcircular");
   console.log(strategy);
+
+  circularid.style.display = "none";
 
   if (strategy != "EMA") {
     signalPeriod.style.display = "block";
@@ -40,9 +43,13 @@ function _onStrategyUI(strategy) {
     kdjid.style.display = "none";
   }
 
-  if (strategy == "OPENORDER" || strategy == "HLCross" || strategy == "the3crow") {
+  if (strategy == "OPENORDER" || strategy == "HLCross" || strategy == "the3crow"|| strategy == "circular") {
     emaid.style.display = "none";
     kdjid.style.display = "none";
+  }
+
+  if (strategy == "circular") {
+    circularid.style.display = "block";
   }
 }
 
@@ -105,7 +112,8 @@ $(function() {
     $('#sellThreshold').val(data.sellThreshold);
     $('#MACDbuyThreshold').val(data.MACDbuyThreshold);
     $('#MACDsellThreshold').val(data.MACDsellThreshold);
-
+    $('#basePrice').val(data.basePrice);
+    $('#fluctuation').val(data.fluctuation);
     // Switch
     $("[data-toggle='switch']").wrap('<div class="switch" />').parent().bootstrapSwitch();
 

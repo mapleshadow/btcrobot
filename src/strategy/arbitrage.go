@@ -21,16 +21,17 @@ import (
 	. "common"
 )
 
-type OOStrategy struct {
+type arbitrageStrategy struct {
+	PrevClosePrice float64
 }
 
 func init() {
-	oo := new(OOStrategy)
-	Register("OPENORDER", oo)
+	arbitrage := new(arbitrageStrategy)
+	Register("arbitrage", arbitrage)
 }
 
-func (oo *OOStrategy) Tick(records []Record) bool {
-
+//arbitrage strategy
+func (arbitrage *arbitrageStrategy) Tick(records []Record) bool {
 	const btcslap = 1.8
 	const ltcslap = 0.8
 
@@ -38,7 +39,12 @@ func (oo *OOStrategy) Tick(records []Record) bool {
 	if !ret {
 		return false
 	}
-
+	/*
+		sell2, buy2, ret := getOrderPrice()
+		if !ret {
+			return false
+		}
+	*/
 	diff := btcslap
 
 	if buy1+diff <= sell1 {

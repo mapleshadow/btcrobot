@@ -3,6 +3,7 @@ package strategy
 import (
 	. "common"
 	. "config"
+	"db"
 	"email"
 	"fmt"
 	"logger"
@@ -15,7 +16,7 @@ type Strategy interface {
 	Tick(records []Record) bool
 }
 
-const timeout = 5 //minute
+const timeout = 1 //minute
 
 var strategys = make(map[string]Strategy)
 var PrevTrade string
@@ -30,6 +31,9 @@ var resellOrders map[time.Time]string
 
 var buy_average float64
 var buy_amount float64
+var lastPrice float64
+var length int
+var isStoploss bool
 
 var gTradeAPI TradeAPI
 
@@ -69,7 +73,7 @@ func Tick(tradeAPI TradeAPI, records []Record) bool {
 	}
 
 	if strategyName != "OPENORDER" {
-		length := len(records)
+		length = len(records)
 		//
 		if length == 0 {
 			logger.Errorln("warning:detect exception data", len(records))
@@ -82,9 +86,12 @@ func Tick(tradeAPI TradeAPI, records []Record) bool {
 				records[length-2].Close, records[length-1].Close, records[length-1].Volumn)
 			return false
 		}
+
+		lastPrice = records[length-1].Close
 	}
 
 	gTradeAPI = tradeAPI
+
 	return strategy.Tick(records)
 }
 
@@ -120,6 +127,23 @@ func getTradePrice(tradeDirection string, price float64) string {
 	return fmt.Sprintf("%0.02f", finalTradePrice)
 }
 
+func getOrderPrice() (sell1, buy1 float64, ret bool) {
+	ret, orderBook := GetOrderBook()
+	if !ret {
+		logger.Infoln("get orderBook failed 1")
+		ret, orderBook = GetOrderBook() //try again
+		if !ret {
+			logger.Infoln("get orderBook failed 2")
+			return 0, 0, ret
+		}
+	}
+
+	logger.Infoln("卖一", orderBook.Asks[len(orderBook.Asks)-1])
+	logger.Infoln("买一", orderBook.Bids[0])
+
+	return orderBook.Asks[len(orderBook.Asks)-1].Price, orderBook.Bids[0].Price, ret
+}
+
 func getBuyPrice() (price string, nPrice float64, warning string) {
 	//compute the price
 	slippage, err := strconv.ParseFloat(Option["slippage"], 64)
@@ -128,19 +152,44 @@ func getBuyPrice() (price string, nPrice float64, warning string) {
 		slippage = 0.01
 	}
 
-	ret, orderBook := GetOrderBook()
+	_, buy1, ret := getOrderPrice()
 	if !ret {
-		logger.Infoln("get orderBook failed 1")
-		ret, orderBook = GetOrderBook() //try again
-		if !ret {
-			logger.Infoln("get orderBook failed 2")
-			return
+		return
+	}
+
+	nPrice = buy1 + slippage
+	price = fmt.Sprintf("%f", nPrice)
+	warning += "---->限价单" + price
+
+	return
+}
+
+func getSellPrice() (price string, nPrice float64, warning string) {
+	//compute the price
+	slippage, err := strconv.ParseFloat(Option["slippage"], 64)
+	if err != nil {
+		logger.Debugln("config item slippage is not float")
+		slippage = 0.01
+	}
+
+	sell1, _, ret := getOrderPrice()
+	if !ret {
+		return
+	}
+	nPrice = sell1 - slippage
+
+	if !isStoploss && Option["discipleMode"] == "1" {
+		if nPrice < PrevBuyPirce {
+			discipleValue, err := strconv.ParseFloat(Option["discipleValue"], 64)
+			if err != nil {
+				logger.Errorln("config item discipleValue is not float")
+				discipleValue = 0.01
+			}
+
+			nPrice = PrevBuyPirce + discipleValue
 		}
 	}
 
-	logger.Infoln("卖一", (orderBook.Asks[len(orderBook.Asks)-1]))
-	logger.Infoln("买一", orderBook.Bids[0])
-	nPrice = orderBook.Bids[0].Price + slippage
 	price = fmt.Sprintf("%f", nPrice)
 	warning += "---->限价单" + price
 
@@ -162,10 +211,28 @@ func buy(price, amount string) string {
 	}
 
 	if buyID != "0" {
-		buyOrders[time.Now()] = buyID
+		timestamp := time.Now()
+		err := db.SetTx("buy", buyID, timestamp.Unix(), price, amount)
+		if err != nil {
+			fmt.Println("SetTx")
+			fmt.Println(err)
+		}
+		buyOrders[timestamp] = buyID
 		PrevTrade = "buy"
 		PrevBuyPirce = nPrice
 	}
+	/*
+		{
+			fmt.Println("GetTx")
+			cmd, id, timestamp, amount, price, err := db.GetTx(buyID)
+			if err != nil {
+				fmt.Println(err)
+			}
+
+			fmt.Println(cmd, id, timestamp, amount, price, err)
+			fmt.Println(db.GetTx(buyID))
+		}
+	*/
 
 	return buyID
 }
@@ -179,11 +246,14 @@ func sell(price, amount string) string {
 	}
 
 	if sellID != "0" {
-		sellOrders[time.Now()] = sellID
+		timestamp := time.Now()
+		db.SetTx("sell", sellID, timestamp.Unix(), price, amount)
+		sellOrders[timestamp] = sellID
 		PrevTrade = "sell"
 		PrevBuyPirce = 0
 	}
 
+	//fmt.Println(db.GetTx(sellID))
 	return sellID
 }
 
@@ -191,6 +261,9 @@ func Buy() string {
 	if PrevTrade == "buy" {
 		return "0"
 	}
+
+	//init
+	isStoploss = false
 
 	//compute the price
 	price, nPrice, warning := getBuyPrice()
@@ -238,33 +311,6 @@ func Buy() string {
 	return buyID
 }
 
-func getSellPrice() (price string, nPrice float64, warning string) {
-	//compute the price
-	slippage, err := strconv.ParseFloat(Option["slippage"], 64)
-	if err != nil {
-		logger.Debugln("config item slippage is not float")
-		slippage = 0.01
-	}
-
-	ret, orderBook := GetOrderBook()
-	if !ret {
-		logger.Infoln("get orderBook failed 1")
-		ret, orderBook = GetOrderBook() //try again
-		if !ret {
-			logger.Infoln("get orderBook failed 2")
-			return
-		}
-	}
-
-	logger.Infoln("卖一", (orderBook.Asks[len(orderBook.Asks)-1]))
-	logger.Infoln("买一", orderBook.Bids[0])
-	nPrice = orderBook.Asks[len(orderBook.Asks)-1].Price - slippage
-	price = fmt.Sprintf("%f", nPrice)
-	warning += "---->限价单" + price
-
-	return
-}
-
 func Sell() string {
 	if PrevTrade == "sell" {
 		return "0"
@@ -276,7 +322,7 @@ func Sell() string {
 	//compute the amount
 	Available_coin := GetAvailable_coin()
 	if Available_coin < 0.01 {
-		warning = "the3crow down, but 没有足够的币可卖"
+		warning = "没有足够的币可卖"
 		logger.Infoln(warning)
 		PrevTrade = "sell"
 		PrevBuyPirce = 0
@@ -385,9 +431,7 @@ func GetAvailable_coin() float64 {
 //common stop loss function
 //////////////////////////////////
 
-func processStoploss(Price []float64) bool {
-	length := len(Price)
-
+func processStoploss(Price float64) bool {
 	stoploss, err := strconv.ParseFloat(Option["stoploss"], 64)
 	if err != nil {
 		logger.Errorln("config item stoploss is not float")
@@ -396,10 +440,11 @@ func processStoploss(Price []float64) bool {
 
 	//do sell when price is below stoploss point
 	stoplossPrice := PrevBuyPirce * (1 - stoploss*0.01)
-	if Price[length-1] <= stoplossPrice {
+	if Price <= stoplossPrice {
 		warning := "stop loss, 卖出Sell Out---->"
 		logger.Infoln(warning)
 
+		isStoploss = true
 		Sell()
 	}
 
@@ -429,11 +474,11 @@ func processTimeout() bool {
 		logger.Infoln(warning)
 		sellID := Sell()
 		if sellID != "0" {
-			warning += "[委托成功]"
+			warning += "[re-sell委托成功]"
 			delete(resellOrders, tm)
 			sellOrders[time.Now()] = sellID //append or just update "set"
 		} else {
-			warning += "[委托失败]"
+			warning += "[re-sell委托失败]"
 		}
 
 		logger.Infoln(warning)
@@ -471,9 +516,9 @@ func processTimeout() bool {
 				warning := fmt.Sprintf("<-----buy Delegation timeout, cancel %s[deal:%f]-------------->", id, order.Deal_amount)
 				logger.Infoln(order)
 				if CancelOrder(id) {
-					warning += "[Cancel委托成功]"
+					warning += "[buy Cancel委托成功]"
 				} else {
-					warning += "[Cancel委托失败]"
+					warning += "[buy Cancel委托失败]"
 					recancelbuyOrders[time.Now()] = id
 				}
 
@@ -518,7 +563,7 @@ func processTimeout() bool {
 
 					warning := "<--------------sell Delegation timeout, cancel-------------->" + id
 					if CancelOrder(id) {
-						warning += "[Cancel委托成功]"
+						warning += "[sell Cancel委托成功]"
 
 						delete(sellOrders, tm)
 						//update to delete, start a new order for sell in below
@@ -534,15 +579,15 @@ func processTimeout() bool {
 						tradeAmount := fmt.Sprintf("%f", sell_amount)
 						sellID := sell(tradePrice, tradeAmount)
 						if sellID != "0" {
-							warning += "[委托成功]"
+							warning += "[resell 委托成功]"
 							sellOrders[time.Now()] = sellID //append or just update "set"
 						} else {
-							warning += "[委托失败]"
+							warning += "[resell 委托失败]"
 							resellOrders[time.Now()] = tradeAmount
 						}
 						logger.Infoln(warning)
 					} else {
-						warning += "[Cancel委托失败]"
+						warning += "[sell Cancel委托失败]"
 					}
 					logger.Infoln(warning)
 					time.Sleep(1 * time.Second)
